@@ -11,4 +11,4 @@ data/
 *.png
 *.webp
 
-/*개인 사진이 들어갈 data/ 폴더는 GitHub에 절대 안 올라감*/
+#개인 사진이 들어갈 data/폴더는 GitHub에 안올라가도록 함
