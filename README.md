@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ID Photo AI
 
 AI 기반 증명사진 자동 생성 프로젝트
@@ -51,8 +52,4 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload ## 서버 시작
-
-http://127.0.0.1:8000/
-http://127.0.0.1:8000/docs
-
 
