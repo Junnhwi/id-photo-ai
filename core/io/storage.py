@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import uuid
+import shutil
 
 # Job 폴더들이 저장될 "기본 경로"
 BASE_JOBS_DIR = "data/jobs"
@@ -35,3 +36,45 @@ def create_job_folder() -> tuple[str, str]:
     os.makedirs(outputs_dir, exist_ok=True)
 
     return job_id, job_path
+
+import pathlib
+
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def is_allowed_image(filename: str) -> bool:
+    """
+    파일 확장자가 이미지 허용 목록에 있는지 검사한다.
+    """
+    ext = pathlib.Path(filename).suffix.lower()
+    return ext in ALLOWED_EXTENSIONS
+
+
+def safe_filename(original_name: str) -> str:
+    """
+    파일명이 겹칠 수 있으므로, UUID를 붙여서 안전한 파일명으로 만든다.
+
+    예:
+    - 원본: selfie.png
+    - 저장: selfie__a1b2c3d4.png
+    """
+    ext = pathlib.Path(original_name).suffix.lower()
+    stem = pathlib.Path(original_name).stem
+
+    unique = str(uuid.uuid4())[:8]
+    return f"{stem}__{unique}{ext}"
+
+
+def save_upload_file(upload_file, save_dir: str) -> str:
+    """
+    UploadFile을 디스크에 저장하고, 저장된 파일명을 반환한다.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    filename = safe_filename(upload_file.filename)
+    save_path = os.path.join(save_dir, filename)
+
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(upload_file.file, buffer)
+
+    return filename
