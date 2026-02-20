@@ -1,9 +1,11 @@
+# 파일 저장과 폴더 구조(Job 시스템)를 담당하는 핵심 모듈
+# app/api_routes.py에서 저장이 필요할 때마다 여기 함수들을 호출
 import os
 from datetime import datetime
 import uuid
 import shutil
 
-# Job 폴더들이 저장될 "기본 경로"
+# Job 폴더들이 저장될 기본 경로
 BASE_JOBS_DIR = "data/jobs"
 
 
@@ -35,11 +37,20 @@ def create_job_folder() -> tuple[str, str]:
     os.makedirs(uploads_dir, exist_ok=True) # 폴더가 이미 있어도 에러 내지 말고 그냥 넘어가라는 뜻
     os.makedirs(outputs_dir, exist_ok=True)
 
+    #얼굴 탐지 결과를 나중에 “디버깅 이미지(얼굴 박스 표시)”로 저장할 수 있도록 work 폴더도 만듦
+    uploads_dir = os.path.join(job_path, "uploads")
+    outputs_dir = os.path.join(job_path, "outputs")
+    work_dir = os.path.join(job_path, "work")
+
+    os.makedirs(uploads_dir, exist_ok=True)
+    os.makedirs(outputs_dir, exist_ok=True)
+    os.makedirs(work_dir, exist_ok=True)
+
     return job_id, job_path
 
 import pathlib
 
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"} # 허용되는 이미지 확장자 목록
 
 
 def is_allowed_image(filename: str) -> bool:

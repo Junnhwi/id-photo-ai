@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ID Photo AI
 
 AI 기반 증명사진 자동 생성 프로젝트
@@ -51,5 +50,6 @@ AI 기반 자동 처리 과정을 통해 증명사진 규격에 맞는 결과물
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload ## 서버 시작
+uvicorn app.main:app --reload
+ ## 서버 시작
 
