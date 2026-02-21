@@ -45,6 +45,7 @@ def create_job_folder() -> tuple[str, str]:
     os.makedirs(uploads_dir, exist_ok=True)
     os.makedirs(outputs_dir, exist_ok=True)
     os.makedirs(work_dir, exist_ok=True)
+    
 
     return job_id, job_path
 
