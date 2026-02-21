@@ -3,8 +3,9 @@ import os
 import json
 import cv2
 
-from core.face.detect import detect_faces_opencv
 from core.report.update_report import load_report, save_report
+from core.face.detect_mp import detect_faces_mediapipe
+from core.face.visualize import save_face_preview
 
 from typing import List
 
@@ -35,6 +36,7 @@ async def create_job(files: List[UploadFile] = File(...)):
     # 2) job 폴더 생성
     job_id, job_path = create_job_folder()
     uploads_dir = os.path.join(job_path, "uploads")
+    work_dir = os.path.join(job_path, "work")
 
     saved_files = []
     rejected_files = []
@@ -90,34 +92,73 @@ async def create_job(files: List[UploadFile] = File(...)):
 
         image = cv2.imread(img_path)    #저장된 이미지 파일을 읽어서, 메모리 안에 “이미지 배열”로 만든다 
 
-        if image is None:               #이미지를 읽는 데 실패한 경우 None을 반환 
-            rejected_images.append(
-                {"filename": filename, "reason": "Failed to read image"}
-            )
+        preview_name = f"preview__{filename}"
+
+        if image is None:
+            rejected_images.append({
+                "filename": filename,
+                "reason": "Failed to read image",
+                "preview": None
+            })
             continue
 
 
-        #OpenCV Haar Cascade(얼굴 탐지 모델)를 이용해 얼굴을 탐지한다.
-        faces = detect_faces_opencv(image)    
-        face_count = int(len(faces))
+        #(얼굴 탐지 모델)를 이용해 얼굴을 탐지한다.
+        faces_raw = detect_faces_mediapipe(image)
+
+        # 1차: 기본 threshold (정상 사진에서 오탐 억제)
+        faces = [f for f in faces_raw if f.get("score", 0.0) >= 0.6]
+
+        # 2차(fallback): 0개면 너무 보수적일 수 있으니 threshold를 낮춰 다시 시도
+        if len(faces) == 0 and len(faces_raw) > 0:
+            faces = [f for f in faces_raw if f.get("score", 0.0) >= 0.3]
+
+        face_count = len(faces)
+
+        # 대표 얼굴 1개 선택: 일단 가장 큰 박스를 대표로(간단 버전)
+        main_face_bbox = None
+        if face_count > 0:
+            main_face = max(
+                faces,
+                key=lambda f: (f["bbox"][2] * f["bbox"][3]) * f.get("score", 1.0)
+            )
+            main_face_bbox = main_face["bbox"]
+
+        # preview 저장
+        save_face_preview(
+            image,
+            faces,
+            main_face_bbox,
+            save_dir=work_dir,
+            filename=filename,
+        )
         
         # 얼굴이 0개면 거부
         if face_count == 0:
-            rejected_images.append(
-                {"filename": filename, "reason": "No face detected"}
-            )
+            rejected_images.append({
+                "filename": filename,
+                "reason": "No face detected",
+                "faces_detected": face_count,
+                "preview": preview_name
+            })
 
         # 얼굴이 2개 이상이면 거부 (새 규칙)
         elif face_count >= 2:
-            rejected_images.append(
-                {"filename": filename, "reason": "Multiple faces detected", "faces_detected": face_count}
-            )
+            rejected_images.append({
+                "filename": filename,
+                "reason": "Multiple faces detected",
+                "faces_detected": face_count,
+                "preview": preview_name
+            })
 
         # 얼굴이 정확히 1개면 통과
         else:
-            passed_images.append(
-                {"filename": filename, "faces_detected": face_count}
-            )
+            passed_images.append({
+                "filename": filename,
+                "faces_detected": face_count,
+                "preview": preview_name
+            })
+
 
             
     report["quality_check"] = {
@@ -128,6 +169,33 @@ async def create_job(files: List[UploadFile] = File(...)):
     report["summary"]["quality_passed"] = len(passed_images)
     report["summary"]["quality_rejected"] = len(rejected_images)
 
+    # ----------------------------
+    # (Day-3 Gate) 최소 통과 장수 기준
+    # ----------------------------
+    MIN_PASSED = 10  # 나중에 config로 빼도 됨
+
+    passed_count = report["summary"]["quality_passed"]
+    can_proceed = passed_count >= MIN_PASSED
+
+    report["policy"] = {
+        "min_passed_required": MIN_PASSED,
+        "recommended_upload_range": "10~30"
+    }
+
+    report["gate"] = {
+        "can_proceed": can_proceed,
+        "passed_count": passed_count,
+        "missing_count": max(0, MIN_PASSED - passed_count),
+        "message": (
+            "OK to proceed to next stage."
+            if can_proceed
+            else f"Not enough valid photos. Please upload at least {max(0, MIN_PASSED - passed_count)} more."
+        )
+    }
+
+    # next_stage도 gate 결과에 따라 다르게
+    report["next_stage"] = "background/crop/resize (planned)" if can_proceed else "upload_more_photos"
+    
     report["next_stage"] = "blur/brightness/face_size checks (planned)"
 
     save_report(report_path, report)
@@ -141,5 +209,7 @@ async def create_job(files: List[UploadFile] = File(...)):
         "saved_files": saved_files,
         "rejected_files": rejected_files,
         "quality_check": report["quality_check"],
+        "policy": report["policy"],
+        "gate": report["gate"],
     }
 
