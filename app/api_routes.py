@@ -17,7 +17,7 @@ from core.io.storage import (
     save_upload_file,
 )
 
-from core.pipeline.face_align import align_and_crop_face
+from core.pipeline.face_align import align_and_crop_face, draw_landmarks
 
 router = APIRouter()
 
@@ -246,26 +246,38 @@ async def prepare_faces(job_id: str):
             continue
 
         try:
-            aligned = align_and_crop_face(image)
+            aligned, landmarks = align_and_crop_face(image)
         except Exception as e:
-            failed.append({"filename": filename, "reason": f"align error: {type(e).__name__}: {e}"})
+            failed.append({
+                "filename": filename,
+                "reason": f"align error: {type(e).__name__}: {e}"
+            })
             continue
 
         if aligned is None:
-            failed.append({"filename": filename, "reason": "No landmarks / alignment returned None"})
+            failed.append({
+                "filename": filename,
+                "reason": "No landmarks / alignment returned None"
+            })
             continue
 
+        # 1️⃣ aligned 저장
         face_filename = f"aligned_{filename}"
-        save_path = os.path.join(faces_dir, face_filename)
-        cv2.imwrite(save_path, aligned)
-
+        cv2.imwrite(os.path.join(faces_dir, face_filename), aligned)
         prepared_faces.append(face_filename)
+
+        # 2️⃣ 랜드마크 시각화 저장 (디버깅용)
+        landmark_img = draw_landmarks(image, landmarks)
+        landmark_filename = f"landmark_{filename}"
+        cv2.imwrite(os.path.join(faces_dir, landmark_filename), landmark_img)
 
     report["faces_dataset"] = {
         "count": len(prepared_faces),
         "files": prepared_faces,
         "failed": failed,
     }
+    
+    
 
     save_report(report_path, report)
 
@@ -273,3 +285,4 @@ async def prepare_faces(job_id: str):
         "job_id": job_id,
         "faces_prepared": len(prepared_faces)
     }
+
