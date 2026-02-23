@@ -1,60 +1,42 @@
-import os
 import cv2
 import mediapipe as mp
 
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision as mp_vision
-
-MODEL_PATH = os.path.join("models", "blaze_face_short_range.tflite")
-
-_detector = None
-
-
-def _get_detector():
-    global _detector
-    if _detector is not None:
-        return _detector
-
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
-
-    base_options = mp_python.BaseOptions(model_asset_path=MODEL_PATH)
-
-    options = mp_vision.FaceDetectorOptions(
-        base_options=base_options,
-        min_detection_confidence=0.6
-    )
-
-    _detector = mp_vision.FaceDetector.create_from_options(options)
-    return _detector
-
+mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+    static_image_mode=True,
+    max_num_faces=5,
+    refine_landmarks=True,
+    min_detection_confidence=0.5,
+)
 
 def detect_faces_mediapipe(image_bgr):
     """
+    FaceMesh 기반 얼굴 탐지.
     반환:
-      [
-        {"bbox": (x, y, w, h), "score": float},
-        ...
-      ]
+      [{"bbox": (x, y, w, h), "score": 1.0}, ...]
     """
-    detector = _get_detector()
 
+    h, w = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    # ✅ 여기 핵심: MpImage가 아니라 mp.Image를 써야 함
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-
-    result = detector.detect(mp_image)
+    results = mp_face_mesh.process(rgb)
 
     faces = []
-    if result and result.detections:
-        for det in result.detections:
-            score = float(det.categories[0].score) if det.categories else 0.0
-            b = det.bounding_box  # origin_x, origin_y, width, height (픽셀)
 
-            faces.append({
-                "bbox": (int(b.origin_x), int(b.origin_y), int(b.width), int(b.height)),
-                "score": score
-            })
+    if not results.multi_face_landmarks:
+        return faces
+
+    for face_landmarks in results.multi_face_landmarks:
+        xs = [lm.x for lm in face_landmarks.landmark]
+        ys = [lm.y for lm in face_landmarks.landmark]
+
+        x_min = int(min(xs) * w)
+        x_max = int(max(xs) * w)
+        y_min = int(min(ys) * h)
+        y_max = int(max(ys) * h)
+
+        faces.append({
+            "bbox": (x_min, y_min, x_max - x_min, y_max - y_min),
+            "score": 1.0  # FaceMesh는 별도 score 없음
+        })
 
     return faces
