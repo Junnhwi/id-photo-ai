@@ -17,6 +17,8 @@ from core.io.storage import (
     save_upload_file,
 )
 
+from core.pipeline.face_align import align_and_crop_face
+
 router = APIRouter()
 
 
@@ -194,9 +196,7 @@ async def create_job(files: List[UploadFile] = File(...)):
     }
 
     # next_stage도 gate 결과에 따라 다르게
-    report["next_stage"] = "background/crop/resize (planned)" if can_proceed else "upload_more_photos"
-    
-    report["next_stage"] = "blur/brightness/face_size checks (planned)"
+    report["next_stage"] = "prepare_faces (planned)" if can_proceed else "upload_more_photos"
 
     save_report(report_path, report)
 
@@ -213,3 +213,63 @@ async def create_job(files: List[UploadFile] = File(...)):
         "gate": report["gate"],
     }
 
+
+
+
+@router.post("/api/jobs/{job_id}/prepare_faces")
+async def prepare_faces(job_id: str):
+
+    job_path = os.path.join("data", "jobs", job_id)
+    report_path = os.path.join(job_path, "report.json")
+
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    report = load_report(report_path)
+
+    if not report.get("gate", {}).get("can_proceed", False):
+        raise HTTPException(status_code=400, detail="Not enough valid photos")
+
+    uploads_dir = os.path.join(job_path, "uploads")
+    faces_dir = os.path.join(job_path, "faces")
+    os.makedirs(faces_dir, exist_ok=True)
+
+    prepared_faces = []
+    failed = []  
+    for item in report["quality_check"]["passed"]:
+        filename = item["filename"]
+        img_path = os.path.join(uploads_dir, filename)
+
+        image = cv2.imread(img_path)
+        if image is None:
+            failed.append({"filename": filename, "reason": "Failed to read image"})
+            continue
+
+        try:
+            aligned = align_and_crop_face(image)
+        except Exception as e:
+            failed.append({"filename": filename, "reason": f"align error: {type(e).__name__}: {e}"})
+            continue
+
+        if aligned is None:
+            failed.append({"filename": filename, "reason": "No landmarks / alignment returned None"})
+            continue
+
+        face_filename = f"aligned_{filename}"
+        save_path = os.path.join(faces_dir, face_filename)
+        cv2.imwrite(save_path, aligned)
+
+        prepared_faces.append(face_filename)
+
+    report["faces_dataset"] = {
+        "count": len(prepared_faces),
+        "files": prepared_faces,
+        "failed": failed,
+    }
+
+    save_report(report_path, report)
+
+    return {
+        "job_id": job_id,
+        "faces_prepared": len(prepared_faces)
+    }
