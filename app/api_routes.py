@@ -18,6 +18,7 @@ from core.io.storage import (
 )
 
 from core.pipeline.face_align import frame_id_photo, draw_landmarks
+from core.pipeline.background_birefnet import BiRefNetMatting, remove_bg_and_compose_white
 
 router = APIRouter()
 
@@ -86,6 +87,7 @@ async def create_job(files: List[UploadFile] = File(...)):
     # ----------------------------
     report = load_report(report_path)
     report.setdefault("idphoto_dataset", {})
+
 
     passed_images = []
     rejected_images = []
@@ -289,7 +291,8 @@ async def prepare_faces(job_id: str):
             "eye_dist_to_crop_w": EYE_DIST_TO_CROP_W,
     }
     report["next_stage"] = "background/retouch (planned)"   
-    
+    report["idphoto_dataset"]["prepared_faces"] = prepared_faces
+    report["idphoto_dataset"]["failed"] = failed
 
     save_report(report_path, report)
 
@@ -298,3 +301,93 @@ async def prepare_faces(job_id: str):
         "faces_prepared": len(prepared_faces)
     }
 
+@router.post("/api/jobs/{job_id}/background")
+async def background(job_id: str):
+    try:
+        job_path = os.path.join("data", "jobs", job_id)
+        report_path = os.path.join(job_path, "report.json")
+
+        if not os.path.exists(report_path):
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        report = load_report(report_path)
+
+        prepared = report.get("idphoto_dataset", {}).get("prepared_faces", None)
+        if not prepared:
+            raise HTTPException(status_code=400, detail="No prepared faces. Run prepare_faces first.")
+
+        faces_dir = os.path.join(job_path, "faces")
+        bg_dir = os.path.join(job_path, "background")
+        os.makedirs(bg_dir, exist_ok=True)
+
+        # ✅ HF에서 받은 weight 파일명에 맞춰 경로를 지정
+        # 예: third_party/BiRefNet/weights/model.safetensors
+        weight_path = os.path.join("third_party", "BiRefNet", "weights", "model.safetensors")
+        if not os.path.exists(weight_path):
+            raise HTTPException(status_code=500, detail=f"BiRefNet weight not found: {weight_path}")
+
+        # ✅ GPU/CPU 자동 선택 (문제 분리하려면 device="cpu"로 고정도 가능)
+        matting = BiRefNetMatting(weight_path=weight_path)
+
+        outputs = []
+        failed = []
+
+        for name in prepared:
+            src_path = os.path.join(faces_dir, name)
+            img = cv2.imread(src_path)
+            if img is None:
+                failed.append({"src": name, "reason": "Failed to read idphoto"})
+                continue
+
+            try:
+                rgba, white_bgr = remove_bg_and_compose_white(img, matting)
+            except Exception as e:
+                failed.append({"src": name, "reason": f"matting error: {type(e).__name__}: {e}"})
+                continue
+
+            base = os.path.splitext(name)[0]  # idphoto_01_xxx
+            out_png = f"bg_{base}.png"
+            out_jpg = f"white_{base}.jpg"
+
+            png_path = os.path.join(bg_dir, out_png)
+            jpg_path = os.path.join(bg_dir, out_jpg)
+
+            # OpenCV는 BGRA로 저장
+            bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+            cv2.imwrite(png_path, rgba)
+            cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+
+            outputs.append({
+                "src": f"faces/{name}",
+                "bg_png": f"background/{out_png}",
+                "white_jpg": f"background/{out_jpg}"
+            })
+
+        report["background"] = {
+            "method": "BiRefNet_dynamic-matting",
+            "params": {
+                "out_white": True,
+                "out_rgba": True,
+                "weight_file": os.path.basename(weight_path)
+            },
+            "outputs": outputs,
+            "failed": failed
+        }
+        report["next_stage"] = "retouch (planned)"
+        save_report(report_path, report)
+
+        return {
+            "job_id": job_id,
+            "background_done": len(outputs),
+            "failed": len(failed),
+        }
+
+    except HTTPException:
+        # FastAPI에서 의도적으로 던진 에러는 그대로 올림
+        raise
+    except Exception as e:
+        # ✅ 500 원인을 response body(detail)로 바로 확인 가능
+        raise HTTPException(
+            status_code=500,
+            detail=f"background error: {type(e).__name__}: {e}"
+        )
