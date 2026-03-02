@@ -17,7 +17,7 @@ from core.io.storage import (
     save_upload_file,
 )
 
-from core.pipeline.face_align import align_and_crop_face, draw_landmarks
+from core.pipeline.face_align import frame_id_photo, draw_landmarks
 
 router = APIRouter()
 
@@ -85,6 +85,7 @@ async def create_job(files: List[UploadFile] = File(...)):
     # 2) 얼굴 탐지 품질 검사 (Day-3) 
     # ----------------------------
     report = load_report(report_path)
+    report.setdefault("idphoto_dataset", {})
 
     passed_images = []
     rejected_images = []
@@ -236,7 +237,14 @@ async def prepare_faces(job_id: str):
 
     prepared_faces = []
     failed = []  
-    for item in report["quality_check"]["passed"]:
+
+    OUT_W = 600
+    OUT_H = 800
+    EYE_Y_RATIO = 0.35
+    EYE_DIST_TO_CROP_W = 3.5  # <-- 여기만 바꾸면 실제 프레이밍도 바뀜
+
+    print(f"[prepare_faces] params: eye_dist_to_crop_w={EYE_DIST_TO_CROP_W}")
+    for idx, item in enumerate(report["quality_check"]["passed"], start=1):
         filename = item["filename"]
         img_path = os.path.join(uploads_dir, filename)
 
@@ -246,7 +254,13 @@ async def prepare_faces(job_id: str):
             continue
 
         try:
-            aligned, landmarks = align_and_crop_face(image)
+            framed, landmarks = frame_id_photo(
+                image,
+                out_w=OUT_W,
+                out_h=OUT_H,
+                eye_y_ratio=EYE_Y_RATIO,
+                eye_dist_to_crop_w=EYE_DIST_TO_CROP_W,
+            )
         except Exception as e:
             failed.append({
                 "filename": filename,
@@ -254,29 +268,27 @@ async def prepare_faces(job_id: str):
             })
             continue
 
-        if aligned is None:
-            failed.append({
-                "filename": filename,
-                "reason": "No landmarks / alignment returned None"
-            })
-            continue
-
-        # 1️⃣ aligned 저장
-        face_filename = f"aligned_{filename}"
-        cv2.imwrite(os.path.join(faces_dir, face_filename), aligned)
-        prepared_faces.append(face_filename)
-
-        # 2️⃣ 랜드마크 시각화 저장 (디버깅용)
-        landmark_img = draw_landmarks(image, landmarks)
-        landmark_filename = f"landmark_{filename}"
-        cv2.imwrite(os.path.join(faces_dir, landmark_filename), landmark_img)
-
-    report["faces_dataset"] = {
-        "count": len(prepared_faces),
-        "files": prepared_faces,
-        "failed": failed,
-    }
     
+        if framed is None:
+            failed.append({"filename": filename, "reason": "Framing failed"})
+            continue 
+        out_name = f"idphoto_{idx:02d}_{filename}"
+        cv2.imwrite(os.path.join(faces_dir, out_name), framed)
+        prepared_faces.append(out_name)
+
+        # 디버깅: 원본에 랜드마크 표기 저장(확인용)
+        landmark_img = draw_landmarks(image, landmarks)
+        landmark_name = f"landmark_{idx:02d}_{filename}"
+        cv2.imwrite(os.path.join(faces_dir, landmark_name), landmark_img)
+        
+
+    report["idphoto_dataset"]["params"] = {
+        "out_w": OUT_W,
+        "out_h": OUT_H,
+        "eye_y_ratio": EYE_Y_RATIO,
+            "eye_dist_to_crop_w": EYE_DIST_TO_CROP_W,
+    }
+    report["next_stage"] = "background/retouch (planned)"   
     
 
     save_report(report_path, report)
