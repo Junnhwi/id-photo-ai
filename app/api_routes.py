@@ -6,6 +6,7 @@ import cv2
 from core.report.update_report import load_report, save_report
 from core.face.detect_mp import detect_faces_mediapipe
 from core.face.visualize import save_face_preview
+from core.pipeline.retouch import retouch_image
 
 from typing import List
 
@@ -391,3 +392,63 @@ async def background(job_id: str):
             status_code=500,
             detail=f"background error: {type(e).__name__}: {e}"
         )
+    
+
+@router.post("/api/jobs/{job_id}/retouch")
+async def retouch(job_id: str):
+
+    job_path = os.path.join("data", "jobs", job_id)
+    report_path = os.path.join(job_path, "report.json")
+
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    report = load_report(report_path)
+
+    background = report.get("background", {})
+    outputs = background.get("outputs", [])
+
+    if not outputs:
+        raise HTTPException(status_code=400, detail="Run background first")
+
+    bg_dir = os.path.join(job_path, "background")
+    retouch_dir = os.path.join(job_path, "retouch")
+
+    os.makedirs(retouch_dir, exist_ok=True)
+
+    results = []
+
+    for item in outputs:
+
+        src = item["white_jpg"]
+        src_path = os.path.join(job_path, src)
+
+        img = cv2.imread(src_path)
+
+        if img is None:
+            continue
+
+        retouched = retouch_image(img)
+
+        name = os.path.basename(src)
+        out_name = f"retouch_{name}"
+
+        out_path = os.path.join(retouch_dir, out_name)
+
+        cv2.imwrite(out_path, retouched)
+
+        results.append(f"retouch/{out_name}")
+
+    report["retouch"] = {
+        "method": "basic_dataset_cleanup",
+        "outputs": results
+    }
+
+    report["next_stage"] = "embedding / training"
+
+    save_report(report_path, report)
+
+    return {
+        "job_id": job_id,
+        "retouched": len(results)
+    }
