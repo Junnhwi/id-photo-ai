@@ -4,7 +4,7 @@ import numpy as np
 
 def tone_normalize(bgr):
     """
-    밝기/대비를 살짝 안정화
+    밝기/대비 안정화
     """
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
 
@@ -31,7 +31,7 @@ def denoise(bgr):
 
 def sharpen(bgr):
     """
-    약한 샤프닝
+    샤프닝
     """
     blur = cv2.GaussianBlur(bgr, (0,0), 0.6)
     return cv2.addWeighted(bgr, 1.05, blur, -0.05, 0)
