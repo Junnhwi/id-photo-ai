@@ -7,6 +7,7 @@ from core.report.update_report import load_report, save_report
 from core.face.detect_mp import detect_faces_mediapipe
 from core.face.visualize import save_face_preview
 from core.pipeline.retouch import retouch_image
+from core.pipeline.face_embedding import extract_identity_embeddings
 
 from typing import List
 
@@ -302,6 +303,42 @@ async def prepare_faces(job_id: str):
         "faces_prepared": len(prepared_faces)
     }
 
+@router.post("/api/jobs/{job_id}/embedding")
+async def embedding(job_id: str):
+    job_path = os.path.join("data", "jobs", job_id)
+    report_path = os.path.join(job_path, "report.json")
+
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    report = load_report(report_path)
+
+    # retouch 결과가 없으면 진행 불가 (A: retouch 기준)
+    retouch_outputs = report.get("retouch", {}).get("outputs", [])
+    if not retouch_outputs:
+        raise HTTPException(status_code=400, detail="No retouch outputs. Run /retouch first.")
+
+    try:
+        identity = extract_identity_embeddings(
+            job_path,
+            report,
+            device="cuda",          # cuda 안되면 "cpu"
+            sim_threshold=0.38      # 시작값(필요하면 0.35~0.45 사이 조정)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"embedding error: {type(e).__name__}: {e}")
+
+    report["identity"] = identity
+    report["next_stage"] = "lora_training (planned)"
+    save_report(report_path, report)
+
+    return {
+        "job_id": job_id,
+        "kept": len(identity.get("kept", [])),
+        "dropped": len(identity.get("dropped", [])),
+        "saved": identity.get("saved", {}),
+    }
+
 @router.post("/api/jobs/{job_id}/background")
 async def background(job_id: str):
     try:
@@ -452,3 +489,4 @@ async def retouch(job_id: str):
         "job_id": job_id,
         "retouched": len(results)
     }
+
