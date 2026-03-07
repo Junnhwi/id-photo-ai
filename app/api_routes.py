@@ -8,6 +8,7 @@ from core.face.detect_mp import detect_faces_mediapipe
 from core.face.visualize import save_face_preview
 from core.pipeline.retouch import retouch_image
 from core.pipeline.face_embedding import extract_identity_embeddings
+from core.pipeline.dataset_builder import build_training_dataset
 
 from typing import List
 
@@ -328,7 +329,7 @@ async def embedding(job_id: str):
         raise HTTPException(status_code=500, detail=f"embedding error: {type(e).__name__}: {e}")
 
     report["identity"] = identity
-    report["next_stage"] = "lora_training (planned)"
+    report["next_stage"] = "build_dataset"
     save_report(report_path, report)
 
     return {
@@ -336,6 +337,50 @@ async def embedding(job_id: str):
         "kept": len(identity.get("kept", [])),
         "dropped": len(identity.get("dropped", [])),
         "saved": identity.get("saved", {}),
+    }
+
+@router.post("/api/jobs/{job_id}/build_dataset")
+async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
+    job_path = os.path.join("data", "jobs", job_id)
+    report_path = os.path.join(job_path, "report.json")
+
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    report = load_report(report_path)
+
+    identity = report.get("identity", {})
+    kept = identity.get("kept", [])
+    if not kept:
+        raise HTTPException(status_code=400, detail="No identity-kept images. Run /embedding first.")
+
+    try:
+        dataset_info = build_training_dataset(
+            job_path,
+            report,
+            trigger_token=trigger_token,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"build_dataset error: {type(e).__name__}: {e}")
+
+    report["dataset"] = {
+        "trigger_token": dataset_info["trigger_token"],
+        "source_type": dataset_info["source_type"],
+        "count": dataset_info["count"],
+        "dir": dataset_info["dir"],
+        "meta_json": dataset_info["meta_json"],
+    }
+
+    report["next_stage"] = "lora_training"
+    save_report(report_path, report)
+
+    return {
+        "job_id": job_id,
+        "dataset_count": dataset_info["count"],
+        "dataset_dir": dataset_info["dir"],
+        "trigger_token": dataset_info["trigger_token"],
+        "meta_json": dataset_info["meta_json"],
+        "missing": len(dataset_info.get("missing", [])),
     }
 
 @router.post("/api/jobs/{job_id}/background")
@@ -377,7 +422,8 @@ async def background(job_id: str):
                 continue
 
             try:
-                rgba, white_bgr = remove_bg_and_compose_white(img, matting)
+                bgra, white_bgr = remove_bg_and_compose_white(img, matting)
+                cv2.imwrite(png_path, bgra)
             except Exception as e:
                 failed.append({"src": name, "reason": f"matting error: {type(e).__name__}: {e}"})
                 continue
@@ -387,9 +433,11 @@ async def background(job_id: str):
             out_jpg = f"white_{base}.jpg"
 
             png_path = os.path.join(bg_dir, out_png)
+            jpg_path = os.path.join(bg_dir, out_jpg)
 
             cv2.imwrite(png_path, rgba)
-
+            cv2.imwrite(jpg_path, white_bgr)
+            
             outputs.append({
                 "src": f"faces/{name}",
                 "bg_png": f"background/{out_png}",
@@ -475,7 +523,7 @@ async def retouch(job_id: str):
         "outputs": results
     }
 
-    report["next_stage"] = "embedding / training"
+    report["next_stage"] = "embedding"
 
     save_report(report_path, report)
 
