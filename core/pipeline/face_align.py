@@ -103,11 +103,6 @@ def frame_id_photo(
     crop_w = int(eye_distance * float(eye_dist_to_crop_w))
     crop_h = int(crop_w * (out_h / out_w))  # 3:4 유지
 
-    print(
-        f"[framing] param={eye_dist_to_crop_w} eye_dist={eye_distance:.1f} "
-        f"crop_w={crop_w} crop_h={crop_h}"
-    )
-
     # 5) crop 중심 좌표 계산
     # 눈이 최종 이미지에서 out_h * eye_y_ratio 위치에 오도록 한다.
     # 즉, crop의 top = eyes_center_y - crop_h * eye_y_ratio
@@ -118,11 +113,6 @@ def frame_id_photo(
     y1 = int(cy - crop_h * float(eye_y_ratio))
     x2 = x1 + crop_w
     y2 = y1 + crop_h
-
-    print(
-        f"[framing] crop box: x1={x1}, y1={y1}, x2={x2}, y2={y2}, "
-        f"img_w={w}, img_h={h}"
-    )
 
     # 6) 이미지 밖으로 나가는 부분을 보정(클램프)
     #   - out of bounds가 있으면 crop 영역을 안쪽으로 밀어 넣는다.

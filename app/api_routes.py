@@ -247,7 +247,6 @@ async def prepare_faces(job_id: str):
     EYE_Y_RATIO = 0.35
     EYE_DIST_TO_CROP_W = 3.5  # <-- 여기만 바꾸면 실제 프레이밍도 바뀜
 
-    print(f"[prepare_faces] params: eye_dist_to_crop_w={EYE_DIST_TO_CROP_W}")
     for idx, item in enumerate(report["quality_check"]["passed"], start=1):
         filename = item["filename"]
         img_path = os.path.join(uploads_dir, filename)
@@ -388,12 +387,8 @@ async def background(job_id: str):
             out_jpg = f"white_{base}.jpg"
 
             png_path = os.path.join(bg_dir, out_png)
-            jpg_path = os.path.join(bg_dir, out_jpg)
 
-            # OpenCV는 BGRA로 저장
-            bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
             cv2.imwrite(png_path, rgba)
-            cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
 
             outputs.append({
                 "src": f"faces/{name}",
@@ -448,7 +443,6 @@ async def retouch(job_id: str):
     if not outputs:
         raise HTTPException(status_code=400, detail="Run background first")
 
-    bg_dir = os.path.join(job_path, "background")
     retouch_dir = os.path.join(job_path, "retouch")
 
     os.makedirs(retouch_dir, exist_ok=True)
