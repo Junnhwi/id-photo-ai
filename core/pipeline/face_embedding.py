@@ -28,26 +28,17 @@ def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b))
 
 
-def _list_retouch_images(job_path: str, report: dict) -> List[str]:
-    """
-    우선순위:
-      1) report["retouch"]["outputs"] 가 있으면 그걸 사용
-      2) 없으면 job_path/retouch 폴더의 jpg/png를 스캔
-    반환: job_path 기준 상대경로 리스트 (예: "retouch/retouch_white_...jpg")
-    """
-    outputs = report.get("retouch", {}).get("outputs")
-    if outputs and isinstance(outputs, list):
-        return outputs
-
-    retouch_dir = os.path.join(job_path, "retouch")
-    if not os.path.isdir(retouch_dir):
+def _list_retouch_images(job_path: str, report: dict) -> list[str]:
+    outputs = report.get("retouch", {}).get("outputs", [])
+    if not outputs:
         return []
 
     files = []
-    for fn in sorted(os.listdir(retouch_dir)):
-        lower = fn.lower()
-        if lower.endswith((".jpg", ".jpeg", ".png", ".webp")):
-            files.append(f"retouch/{fn}")
+    for rel in outputs:
+        abs_path = os.path.join(job_path, rel)
+        if os.path.exists(abs_path):
+            files.append(rel)
+
     return files
 
 
