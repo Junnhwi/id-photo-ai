@@ -2,6 +2,9 @@
 import os
 import json
 import cv2
+from typing import List
+
+from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from core.report.update_report import load_report, save_report
 from core.face.detect_mp import detect_faces_mediapipe
@@ -9,10 +12,6 @@ from core.face.visualize import save_face_preview
 from core.pipeline.retouch import retouch_image
 from core.pipeline.face_embedding import extract_identity_embeddings
 from core.pipeline.dataset_builder import build_training_dataset
-
-from typing import List
-
-from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from core.io.storage import (
     create_job_folder,
@@ -24,6 +23,12 @@ from core.pipeline.face_align import frame_id_photo, draw_landmarks
 from core.pipeline.background_birefnet import BiRefNetMatting, remove_bg_and_compose_white
 
 router = APIRouter()
+
+MIN_PASSED = 10
+OUT_W = 600
+OUT_H = 800
+EYE_Y_RATIO = 0.35
+EYE_DIST_TO_CROP_W = 3.5
 
 
 @router.post("/api/jobs") # 업로드 요청을 받는 API 엔드포인트. 여러 이미지 파일을 업로드 받아서 Job 폴더에 저장한다.
@@ -180,8 +185,6 @@ async def create_job(files: List[UploadFile] = File(...)):
     # ----------------------------
     # (Day-3 Gate) 최소 통과 장수 기준
     # ----------------------------
-    MIN_PASSED = 10  # 나중에 config로 빼도 됨
-
     passed_count = report["summary"]["quality_passed"]
     can_proceed = passed_count >= MIN_PASSED
 
@@ -242,11 +245,6 @@ async def prepare_faces(job_id: str):
 
     prepared_faces = []
     failed = []  
-
-    OUT_W = 600
-    OUT_H = 800
-    EYE_Y_RATIO = 0.35
-    EYE_DIST_TO_CROP_W = 3.5  # <-- 여기만 바꾸면 실제 프레이밍도 바뀜
 
     for idx, item in enumerate(report["quality_check"]["passed"], start=1):
         filename = item["filename"]
@@ -423,7 +421,6 @@ async def background(job_id: str):
 
             try:
                 bgra, white_bgr = remove_bg_and_compose_white(img, matting)
-                cv2.imwrite(png_path, bgra)
             except Exception as e:
                 failed.append({"src": name, "reason": f"matting error: {type(e).__name__}: {e}"})
                 continue
@@ -435,7 +432,7 @@ async def background(job_id: str):
             png_path = os.path.join(bg_dir, out_png)
             jpg_path = os.path.join(bg_dir, out_jpg)
 
-            cv2.imwrite(png_path, rgba)
+            cv2.imwrite(png_path, bgra)
             cv2.imwrite(jpg_path, white_bgr)
             
             outputs.append({
@@ -531,4 +528,3 @@ async def retouch(job_id: str):
         "job_id": job_id,
         "retouched": len(results)
     }
-
