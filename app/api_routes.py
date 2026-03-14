@@ -2,17 +2,15 @@
 import os
 import json
 import cv2
+from typing import List
+
+from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from core.report.update_report import load_report, save_report
 from core.face.detect_mp import detect_faces_mediapipe
 from core.face.visualize import save_face_preview
-from core.pipeline.retouch import retouch_image
 from core.pipeline.face_embedding import extract_identity_embeddings
 from core.pipeline.dataset_builder import build_training_dataset
-
-from typing import List
-
-from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from core.io.storage import (
     create_job_folder,
@@ -24,6 +22,12 @@ from core.pipeline.face_align import frame_id_photo, draw_landmarks
 from core.pipeline.background_birefnet import BiRefNetMatting, remove_bg_and_compose_white
 
 router = APIRouter()
+
+MIN_PASSED = 10
+OUT_W = 600
+OUT_H = 800
+EYE_Y_RATIO = 0.35
+EYE_DIST_TO_CROP_W = 3.5
 
 
 @router.post("/api/jobs") # 업로드 요청을 받는 API 엔드포인트. 여러 이미지 파일을 업로드 받아서 Job 폴더에 저장한다.
@@ -180,8 +184,6 @@ async def create_job(files: List[UploadFile] = File(...)):
     # ----------------------------
     # (Day-3 Gate) 최소 통과 장수 기준
     # ----------------------------
-    MIN_PASSED = 10  # 나중에 config로 빼도 됨
-
     passed_count = report["summary"]["quality_passed"]
     can_proceed = passed_count >= MIN_PASSED
 
@@ -243,11 +245,6 @@ async def prepare_faces(job_id: str):
     prepared_faces = []
     failed = []  
 
-    OUT_W = 600
-    OUT_H = 800
-    EYE_Y_RATIO = 0.35
-    EYE_DIST_TO_CROP_W = 3.5  # <-- 여기만 바꾸면 실제 프레이밍도 바뀜
-
     for idx, item in enumerate(report["quality_check"]["passed"], start=1):
         filename = item["filename"]
         img_path = os.path.join(uploads_dir, filename)
@@ -292,7 +289,7 @@ async def prepare_faces(job_id: str):
         "eye_y_ratio": EYE_Y_RATIO,
             "eye_dist_to_crop_w": EYE_DIST_TO_CROP_W,
     }
-    report["next_stage"] = "background/retouch (planned)"   
+    report["next_stage"] = "background (planned)"   
     report["idphoto_dataset"]["prepared_faces"] = prepared_faces
     report["idphoto_dataset"]["failed"] = failed
 
@@ -313,10 +310,9 @@ async def embedding(job_id: str):
 
     report = load_report(report_path)
 
-    # retouch 결과가 없으면 진행 불가 (A: retouch 기준)
-    retouch_outputs = report.get("retouch", {}).get("outputs", [])
-    if not retouch_outputs:
-        raise HTTPException(status_code=400, detail="No retouch outputs. Run /retouch first.")
+    background_outputs = report.get("background", {}).get("outputs", [])
+    if not background_outputs:
+        raise HTTPException(status_code=400, detail="No background outputs. Run /background first.")
 
     try:
         identity = extract_identity_embeddings(
@@ -423,7 +419,6 @@ async def background(job_id: str):
 
             try:
                 bgra, white_bgr = remove_bg_and_compose_white(img, matting)
-                cv2.imwrite(png_path, bgra)
             except Exception as e:
                 failed.append({"src": name, "reason": f"matting error: {type(e).__name__}: {e}"})
                 continue
@@ -435,7 +430,7 @@ async def background(job_id: str):
             png_path = os.path.join(bg_dir, out_png)
             jpg_path = os.path.join(bg_dir, out_jpg)
 
-            cv2.imwrite(png_path, rgba)
+            cv2.imwrite(png_path, bgra)
             cv2.imwrite(jpg_path, white_bgr)
             
             outputs.append({
@@ -454,7 +449,7 @@ async def background(job_id: str):
             "outputs": outputs,
             "failed": failed
         }
-        report["next_stage"] = "retouch (planned)"
+        report["next_stage"] = "embedding"
         save_report(report_path, report)
 
         return {
@@ -473,62 +468,4 @@ async def background(job_id: str):
             detail=f"background error: {type(e).__name__}: {e}"
         )
     
-
-@router.post("/api/jobs/{job_id}/retouch")
-async def retouch(job_id: str):
-
-    job_path = os.path.join("data", "jobs", job_id)
-    report_path = os.path.join(job_path, "report.json")
-
-    if not os.path.exists(report_path):
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    report = load_report(report_path)
-
-    background = report.get("background", {})
-    outputs = background.get("outputs", [])
-
-    if not outputs:
-        raise HTTPException(status_code=400, detail="Run background first")
-
-    retouch_dir = os.path.join(job_path, "retouch")
-
-    os.makedirs(retouch_dir, exist_ok=True)
-
-    results = []
-
-    for item in outputs:
-
-        src = item["white_jpg"]
-        src_path = os.path.join(job_path, src)
-
-        img = cv2.imread(src_path)
-
-        if img is None:
-            continue
-
-        retouched = retouch_image(img)
-
-        name = os.path.basename(src)
-        out_name = f"retouch_{name}"
-
-        out_path = os.path.join(retouch_dir, out_name)
-
-        cv2.imwrite(out_path, retouched)
-
-        results.append(f"retouch/{out_name}")
-
-    report["retouch"] = {
-        "method": "basic_dataset_cleanup",
-        "outputs": results
-    }
-
-    report["next_stage"] = "embedding"
-
-    save_report(report_path, report)
-
-    return {
-        "job_id": job_id,
-        "retouched": len(results)
-    }
 
