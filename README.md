@@ -1,36 +1,69 @@
 # ID Photo AI
 
-AI 기반 증명사진 자동 생성 프로젝트
+AI 기반 증명사진 자동 생성 프로젝트입니다.
 
 ---
 
 ## 프로젝트 소개
 
-일상 사진 여러 장을 업로드하면,  
-AI 기반 자동 처리 과정을 통해 증명사진 규격에 맞는 결과물을 생성하는 프로젝트.
-
-사용자는 스튜디오 촬영 없이도  
-정면, 단색 배경, 규격 크기 조건을 만족하는 증명사진을 얻을 수 있음.
+사용자가 사진 여러 장을 업로드하면, 파이프라인이 자동으로 얼굴 검출/정렬/배경 합성/임베딩/데이터셋 생성을 수행합니다.
+현재 파이프라인은 **retouch 단계 없이** 동작합니다.
 
 ---
 
-## 프로젝트 목표
+## 현재 파이프라인 순서
 
-1. 사진 10~30장 업로드
-2. 품질 검사 (흐림, 정면 여부, 얼굴 크기 등)
-3. 얼굴 정렬 (기울기 보정)
-4. 배경 단색 합성
-5. 규격 크롭 및 리사이즈
-6. 최종 결과 및 처리 리포트 생성
+1. `POST /api/jobs` : 업로드 + 품질 검사
+2. `POST /api/jobs/{job_id}/prepare_faces` : 증명사진 프레이밍
+3. `POST /api/jobs/{job_id}/background` : 배경 제거 + 흰 배경 합성
+4. `POST /api/jobs/{job_id}/embedding` : 동일인 임베딩 필터링
+5. `POST /api/jobs/{job_id}/build_dataset` : 학습 데이터셋 생성
+
+> `retouch` 엔드포인트/모듈은 제거되었습니다.
 
 ---
 
-## 개발 목적
+## 실행 방법
 
-- 컴퓨터 비전(Computer Vision) 파이프라인 설계 경험
-- AI 기반 이미지 처리 시스템 구조 이해
-- FastAPI 기반 서버 개발
-- 실제 서비스 구조에 가까운 Job 시스템 설계
+```bash
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+# source venv/bin/activate
+
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+---
+
+## 충돌/에러 예방 Git 워크플로우
+
+원격과 로컬이 갈라졌을 때(`diverged`)는 아래 순서를 권장합니다.
+
+```bash
+git fetch origin
+git pull --rebase origin main
+```
+
+충돌이 나면:
+
+```bash
+# 충돌 마커 탐색
+rg -n '<<<<<<<|=======|>>>>>>>' app core
+
+# 파일 수정 후
+git add <resolved_files>
+git rebase --continue
+```
+
+작업 전 기본 점검:
+
+```bash
+git status
+python -m compileall app core
+```
 
 ---
 
@@ -39,18 +72,5 @@ AI 기반 자동 처리 과정을 통해 증명사진 규격에 맞는 결과물
 - Python
 - FastAPI
 - OpenCV
-- Pillow
-- NVIDIA RTX 3060 Ti (개발자 GPU 환경)
-
----
-
-## 실행 방법
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-venv\Scripts\activate
-uvicorn app.main:app --reload
- ## 서버 시작
-
+- MediaPipe
+- ONNX Runtime

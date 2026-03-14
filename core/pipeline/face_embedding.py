@@ -28,13 +28,17 @@ def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b))
 
 
-def _list_retouch_images(job_path: str, report: dict) -> list[str]:
-    outputs = report.get("retouch", {}).get("outputs", [])
+def _list_background_white_images(job_path: str, report: dict) -> list[str]:
+    outputs = report.get("background", {}).get("outputs", [])
     if not outputs:
         return []
 
     files = []
-    for rel in outputs:
+    for item in outputs:
+        rel = item.get("white_jpg")
+        if not rel:
+            continue
+
         abs_path = os.path.join(job_path, rel)
         if os.path.exists(abs_path):
             files.append(rel)
@@ -157,9 +161,9 @@ def extract_identity_embeddings(
         - meta.json
         - identity_ref.jpg
     """
-    rel_paths = _list_retouch_images(job_path, report)
+    rel_paths = _list_background_white_images(job_path, report)
     if not rel_paths:
-        raise RuntimeError("No retouch images found. Run /retouch first.")
+        raise RuntimeError("No background white images found. Run /background first.")
 
     prefer_gpu = (device.lower() == "cuda")
     arcface_path = os.path.join("third_party", "BiRefNet", "weights", "arcfaceresnet100-8.onnx")

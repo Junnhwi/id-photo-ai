@@ -4,20 +4,6 @@ import shutil
 from typing import Dict, List
 
 
-def _retouch_rel_to_white_rel(retouch_rel: str) -> str:
-    """
-    예:
-      retouch/retouch_white_idphoto_01_xxx.jpg
-      -> background/white_idphoto_01_xxx.jpg
-    """
-    name = os.path.basename(retouch_rel)
-
-    if not name.startswith("retouch_"):
-        raise ValueError(f"Unexpected retouch filename format: {retouch_rel}")
-
-    white_name = name[len("retouch_"):]  # retouch_ 제거
-    return f"background/{white_name}"
-
 
 def _make_caption(trigger_token: str) -> str:
     """
@@ -33,15 +19,14 @@ def build_training_dataset(
     trigger_token: str = "jhwface",
 ) -> Dict:
     """
-    embedding 단계에서 kept 된 이미지들을 기준으로
-    대응되는 background/white_*.jpg를 train_dataset/으로 복사하고,
-    같은 이름의 txt 캡션 파일을 생성한다.
+    embedding 단계에서 kept 된 background/white_*.jpg 이미지들을
+    train_dataset/으로 복사하고, 같은 이름의 txt 캡션 파일을 생성한다.
     """
 
     identity = report.get("identity", {})
-    kept_retouch = identity.get("kept", [])
+    kept_white = identity.get("kept", [])
 
-    if not kept_retouch:
+    if not kept_white:
         raise RuntimeError("No kept identity images found. Run /embedding first.")
 
     dataset_dir = os.path.join(job_path, "train_dataset")
@@ -53,22 +38,12 @@ def build_training_dataset(
     missing_files: List[Dict] = []
 
     idx = 1
-    for retouch_rel in kept_retouch:
-        try:
-            white_rel = _retouch_rel_to_white_rel(retouch_rel)
-        except Exception as e:
-            missing_files.append({
-                "src_retouch": retouch_rel,
-                "reason": f"name mapping failed: {type(e).__name__}: {e}"
-            })
-            continue
-
+    for white_rel in kept_white:
         src_abs = os.path.join(job_path, white_rel)
         if not os.path.exists(src_abs):
             missing_files.append({
-                "src_retouch": retouch_rel,
-                "expected_white": white_rel,
-                "reason": "mapped white image not found"
+                "src_white": white_rel,
+                "reason": "white image not found"
             })
             continue
 
@@ -86,7 +61,6 @@ def build_training_dataset(
 
         selected_files.append({
             "index": idx,
-            "src_retouch": retouch_rel,
             "src_white": white_rel,
             "dst_image": f"train_dataset/{dst_img_name}",
             "dst_caption": f"train_dataset/{dst_txt_name}",

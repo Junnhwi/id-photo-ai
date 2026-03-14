@@ -9,8 +9,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from core.report.update_report import load_report, save_report
 from core.face.detect_mp import detect_faces_mediapipe
 from core.face.visualize import save_face_preview
-from core.pipeline.retouch import retouch_image
 from core.pipeline.face_embedding import extract_identity_embeddings
+from core.pipeline.retouch import retouch_image
 from core.pipeline.dataset_builder import build_training_dataset
 
 from core.io.storage import (
@@ -290,7 +290,7 @@ async def prepare_faces(job_id: str):
         "eye_y_ratio": EYE_Y_RATIO,
             "eye_dist_to_crop_w": EYE_DIST_TO_CROP_W,
     }
-    report["next_stage"] = "background/retouch (planned)"   
+    report["next_stage"] = "background (planned)"   
     report["idphoto_dataset"]["prepared_faces"] = prepared_faces
     report["idphoto_dataset"]["failed"] = failed
 
@@ -311,10 +311,9 @@ async def embedding(job_id: str):
 
     report = load_report(report_path)
 
-    # retouch 결과가 없으면 진행 불가 (A: retouch 기준)
-    retouch_outputs = report.get("retouch", {}).get("outputs", [])
-    if not retouch_outputs:
-        raise HTTPException(status_code=400, detail="No retouch outputs. Run /retouch first.")
+    background_outputs = report.get("background", {}).get("outputs", [])
+    if not background_outputs:
+        raise HTTPException(status_code=400, detail="No background outputs. Run /background first.")
 
     try:
         identity = extract_identity_embeddings(
@@ -451,7 +450,7 @@ async def background(job_id: str):
             "outputs": outputs,
             "failed": failed
         }
-        report["next_stage"] = "retouch (planned)"
+        report["next_stage"] = "embedding"
         save_report(report_path, report)
 
         return {
@@ -471,9 +470,14 @@ async def background(job_id: str):
         )
     
 
+
+
 @router.post("/api/jobs/{job_id}/retouch")
 async def retouch(job_id: str):
-
+    """
+    Legacy compatibility endpoint.
+    Pipeline no longer requires this stage, but it is retained for older clients/branches.
+    """
     job_path = os.path.join("data", "jobs", job_id)
     report_path = os.path.join(job_path, "report.json")
 
@@ -484,23 +488,20 @@ async def retouch(job_id: str):
 
     background = report.get("background", {})
     outputs = background.get("outputs", [])
-
     if not outputs:
         raise HTTPException(status_code=400, detail="Run background first")
 
     retouch_dir = os.path.join(job_path, "retouch")
-
     os.makedirs(retouch_dir, exist_ok=True)
 
     results = []
-
     for item in outputs:
+        src = item.get("white_jpg")
+        if not src:
+            continue
 
-        src = item["white_jpg"]
         src_path = os.path.join(job_path, src)
-
         img = cv2.imread(src_path)
-
         if img is None:
             continue
 
@@ -508,23 +509,22 @@ async def retouch(job_id: str):
 
         name = os.path.basename(src)
         out_name = f"retouch_{name}"
-
         out_path = os.path.join(retouch_dir, out_name)
 
         cv2.imwrite(out_path, retouched)
-
         results.append(f"retouch/{out_name}")
 
     report["retouch"] = {
-        "method": "basic_dataset_cleanup",
+        "method": "legacy_compat_cleanup",
         "outputs": results
     }
 
+    # Keep next stage as embedding (retouch is optional)
     report["next_stage"] = "embedding"
-
     save_report(report_path, report)
 
     return {
         "job_id": job_id,
-        "retouched": len(results)
+        "retouched": len(results),
+        "deprecated": True
     }
