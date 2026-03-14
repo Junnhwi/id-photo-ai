@@ -30,19 +30,12 @@ def create_job_folder() -> tuple[str, str]:
     # 4) job 폴더 경로 만들기
     job_path = os.path.join(BASE_JOBS_DIR, job_id)
 
-    # 5) 폴더 생성 (uploads, outputs 포함)
-    uploads_dir = os.path.join(job_path, "uploads")
-    outputs_dir = os.path.join(job_path, "outputs")
-
-    os.makedirs(uploads_dir, exist_ok=True) # 폴더가 이미 있어도 에러 내지 말고 그냥 넘어가라는 뜻
-    os.makedirs(outputs_dir, exist_ok=True)
-
-    #얼굴 탐지 결과를 나중에 “디버깅 이미지(얼굴 박스 표시)”로 저장할 수 있도록 work 폴더도 만듦
+    # 5) 폴더 생성 (uploads, outputs, work)
     uploads_dir = os.path.join(job_path, "uploads")
     outputs_dir = os.path.join(job_path, "outputs")
     work_dir = os.path.join(job_path, "work")
 
-    os.makedirs(uploads_dir, exist_ok=True)
+    os.makedirs(uploads_dir, exist_ok=True) # 폴더가 이미 있어도 에러 내지 말고 그냥 넘어가라는 뜻
     os.makedirs(outputs_dir, exist_ok=True)
     os.makedirs(work_dir, exist_ok=True)
     
