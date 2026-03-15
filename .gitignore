@@ -5,6 +5,7 @@ venv/
 models/*.tflite
 .vscode/
 data/
+third_party/sd-scripts/
 
 *.jpg
 *.jpeg
