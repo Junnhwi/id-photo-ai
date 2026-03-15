@@ -6,22 +6,6 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
-def _next_output_index(out_dir: str) -> int:
-    """generated/gen_XX.png 중 다음 인덱스를 반환"""
-    if not os.path.exists(out_dir):
-        return 1
-
-    max_idx = 0
-    for name in os.listdir(out_dir):
-        if not (name.startswith("gen_") and name.endswith(".png")):
-            continue
-        stem = name[4:-4]
-        if stem.isdigit():
-            max_idx = max(max_idx, int(stem))
-
-    return max_idx + 1
-
-
 def _resolve_device(device: str | None) -> str:
     if device:
         return device
@@ -45,7 +29,6 @@ def _mock_generate(
     os.makedirs(out_dir, exist_ok=True)
 
     seed_base = seed if seed is not None else int(hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:8], 16)
-    start_idx = _next_output_index(out_dir)
     outputs: list[str] = []
 
     for i in range(num_images):
@@ -61,7 +44,7 @@ def _mock_generate(
         if negative_prompt:
             draw.text((20, 92), f"neg={negative_prompt[:44]}", fill=(255, 255, 255))
 
-        out_name = f"gen_{start_idx + i:02d}.png"
+        out_name = f"gen_{i+1:02d}.png"
         out_path = os.path.join(out_dir, out_name)
         img.save(out_path)
         outputs.append(f"generated/{out_name}")
@@ -111,7 +94,6 @@ def generate_with_lora(
             pipe.enable_xformers_memory_efficient_attention()
 
         os.makedirs(out_dir, exist_ok=True)
-        start_idx = _next_output_index(out_dir)
         outputs: list[str] = []
 
         gen = torch.Generator(device=runtime_device)
@@ -129,7 +111,7 @@ def generate_with_lora(
                 generator=gen,
             ).images[0]
 
-            out_name = f"gen_{start_idx + i:02d}.png"
+            out_name = f"gen_{i+1:02d}.png"
             out_path = os.path.join(out_dir, out_name)
             image.save(out_path)
             outputs.append(f"generated/{out_name}")

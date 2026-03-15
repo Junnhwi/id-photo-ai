@@ -622,27 +622,13 @@ async def generate_images(job_id: str, req: GenerateRequest):
             detail=f"generate error: {type(e).__name__}: {e}"
         )
 
-    previous_generation = report.get("generation", {})
-    previous_outputs = previous_generation.get("outputs", []) if isinstance(previous_generation, dict) else []
-    new_outputs = gen_result.get("outputs", [])
-
-    report["generation"] = {
-        **gen_result,
-        "outputs": previous_outputs + new_outputs,
-        "last_run_outputs": new_outputs,
-        "runs": int(previous_generation.get("runs", 0)) + 1 if isinstance(previous_generation, dict) else 1,
-    }
-
-    report.setdefault("generation_history", []).append(gen_result)
-
+    report["generation"] = gen_result
     report["next_stage"] = "review / face_similarity_check"
     save_report(report_path, report)
 
     return {
         "job_id": job_id,
         "lora_file": os.path.basename(lora_path),
-        "generated": len(new_outputs),
-        "outputs": new_outputs,
-        "total_generated": len(report["generation"]["outputs"]),
-        "runs": report["generation"]["runs"],
+        "generated": len(gen_result.get("outputs", [])),
+        "outputs": gen_result.get("outputs", []),
     }
