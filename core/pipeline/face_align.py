@@ -2,13 +2,20 @@ import cv2
 import numpy as np
 import mediapipe as mp
 
+_mp_face_mesh = None
 
-mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-)
+
+def _get_face_mesh():
+    """FaceMesh를 최초 사용 시점에 생성한다."""
+    global _mp_face_mesh
+    if _mp_face_mesh is None:
+        _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+        )
+    return _mp_face_mesh
 
 
 def _get_eye_centers(landmarks, image_w, image_h):
@@ -74,7 +81,7 @@ def frame_id_photo(
 
     # 1) 랜드마크 추출
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    results = mp_face_mesh.process(image_rgb)
+    results = _get_face_mesh().process(image_rgb)
     if not results.multi_face_landmarks:
         return None, None
 
