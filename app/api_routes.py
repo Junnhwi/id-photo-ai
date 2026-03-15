@@ -5,22 +5,18 @@ import cv2
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from pydantic import BaseModel
 
 from core.report.update_report import load_report, save_report
-from core.face.detect_mp import detect_faces_mediapipe
-from core.face.visualize import save_face_preview
-from core.pipeline.face_embedding import extract_identity_embeddings
-from core.pipeline.retouch import retouch_image
 from core.pipeline.dataset_builder import build_training_dataset
+from core.pipeline.retouch import retouch_image
+from core.face.visualize import save_face_preview
 
 from core.io.storage import (
     create_job_folder,
     is_allowed_image,
     save_upload_file,
 )
-
-from core.pipeline.face_align import frame_id_photo, draw_landmarks
-from core.pipeline.background_birefnet import BiRefNetMatting, remove_bg_and_compose_white
 
 router = APIRouter()
 
@@ -39,6 +35,8 @@ async def create_job(files: List[UploadFile] = File(...)):
     - 저장 파일명 충돌 방지
     - report.json 뼈대 생성
     """
+
+    from core.face.detect_mp import detect_faces_mediapipe
 
     # 1) 파일이 하나도 안 들어오면 에러 처리
     if not files:
@@ -227,6 +225,7 @@ async def create_job(files: List[UploadFile] = File(...)):
 
 @router.post("/api/jobs/{job_id}/prepare_faces")
 async def prepare_faces(job_id: str):
+    from core.pipeline.face_align import frame_id_photo, draw_landmarks
 
     job_path = os.path.join("data", "jobs", job_id)
     report_path = os.path.join(job_path, "report.json")
@@ -303,6 +302,7 @@ async def prepare_faces(job_id: str):
 
 @router.post("/api/jobs/{job_id}/embedding")
 async def embedding(job_id: str):
+    from core.pipeline.face_embedding import extract_identity_embeddings
     job_path = os.path.join("data", "jobs", job_id)
     report_path = os.path.join(job_path, "report.json")
 
@@ -337,7 +337,11 @@ async def embedding(job_id: str):
     }
 
 @router.post("/api/jobs/{job_id}/build_dataset")
-async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
+async def build_dataset(
+    job_id: str,
+    trigger_token: str = "jhwface",
+    subject_desc: str = "korean male",
+):
     job_path = os.path.join("data", "jobs", job_id)
     report_path = os.path.join(job_path, "report.json")
 
@@ -356,6 +360,7 @@ async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
             job_path,
             report,
             trigger_token=trigger_token,
+            subject_desc=subject_desc,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"build_dataset error: {type(e).__name__}: {e}")
@@ -382,6 +387,7 @@ async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
 
 @router.post("/api/jobs/{job_id}/background")
 async def background(job_id: str):
+    from core.pipeline.background_birefnet import BiRefNetMatting, remove_bg_and_compose_white
     try:
         job_path = os.path.join("data", "jobs", job_id)
         report_path = os.path.join(job_path, "report.json")

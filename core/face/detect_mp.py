@@ -1,12 +1,20 @@
 import cv2
 import mediapipe as mp
 
-mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=5,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-)
+_mp_face_mesh = None
+
+
+def _get_face_mesh():
+    """FaceMesh를 최초 1회만 생성(지연 초기화)"""
+    global _mp_face_mesh
+    if _mp_face_mesh is None:
+        _mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=5,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+        )
+    return _mp_face_mesh
 
 def detect_faces_mediapipe(image_bgr):
     """
@@ -18,7 +26,7 @@ def detect_faces_mediapipe(image_bgr):
     h, w = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    results = mp_face_mesh.process(rgb)
+    results = _get_face_mesh().process(rgb)
 
     faces = []
 
