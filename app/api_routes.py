@@ -5,6 +5,7 @@ import cv2
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from pydantic import BaseModel
 
 from core.report.update_report import load_report, save_report
 from core.pipeline.dataset_builder import build_training_dataset
