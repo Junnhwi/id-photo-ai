@@ -21,6 +21,18 @@ from core.io.storage import (
 
 router = APIRouter()
 
+class GenerateRequest(BaseModel):
+    prompt: str
+    negative_prompt: str = ""
+    num_images: int = 1
+    steps: int = 30
+    guidance_scale: float = 7.0
+    width: int = 512
+    height: int = 768
+    seed: int | None = None
+    base_model: str
+
+
 MIN_PASSED = 10
 OUT_W = 600
 OUT_H = 800
@@ -534,4 +546,89 @@ async def retouch(job_id: str):
         "job_id": job_id,
         "retouched": len(results),
         "deprecated": True
+    }
+
+
+@router.post("/api/jobs/{job_id}/generate")
+async def generate_images(job_id: str, req: GenerateRequest):
+    job_path = os.path.join("data", "jobs", job_id)
+    report_path = os.path.join(job_path, "report.json")
+
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    report = load_report(report_path)
+
+    # 1) report에 저장된 LoRA 경로가 있으면 우선 사용
+    lora_block = report.get("lora", {})
+    lora_rel = lora_block.get("model_path")
+    lora_path = None
+
+    if lora_rel:
+        candidate = lora_rel if os.path.isabs(lora_rel) else os.path.join(job_path, lora_rel)
+        if os.path.exists(candidate):
+            lora_path = candidate
+
+    # 2) 없으면 job의 lora 폴더 안에서 .safetensors 자동 탐색
+    if lora_path is None:
+        lora_dir = os.path.join(job_path, "lora")
+        lora_candidates = glob(os.path.join(lora_dir, "*.safetensors"))
+
+        if len(lora_candidates) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No .safetensors file found in {lora_dir}"
+            )
+
+        if len(lora_candidates) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Multiple .safetensors files found in {lora_dir}. Please specify one in report['lora']['model_path']."
+            )
+
+        lora_path = lora_candidates[0]
+
+    # 지연 import: 생성 파이프라인 모듈이 있을 때만 로딩
+    try:
+        from core.pipeline.generate_lora import generate_with_lora
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Generate pipeline module is unavailable: "
+                f"{type(e).__name__}: {e}. "
+                "Please ensure core/pipeline/generate_lora.py is present."
+            ),
+        )
+
+    try:
+        gen_result = generate_with_lora(
+            job_path=job_path,
+            base_model=req.base_model,
+            lora_path=lora_path,
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt,
+            num_images=req.num_images,
+            steps=req.steps,
+            guidance_scale=req.guidance_scale,
+            width=req.width,
+            height=req.height,
+            seed=req.seed,
+            device=None,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"generate error: {type(e).__name__}: {e}"
+        )
+
+    report["generation"] = gen_result
+    report["next_stage"] = "review / face_similarity_check"
+    save_report(report_path, report)
+
+    return {
+        "job_id": job_id,
+        "lora_file": os.path.basename(lora_path),
+        "generated": len(gen_result.get("outputs", [])),
+        "outputs": gen_result.get("outputs", []),
     }
