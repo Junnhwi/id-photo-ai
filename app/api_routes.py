@@ -337,7 +337,11 @@ async def embedding(job_id: str):
     }
 
 @router.post("/api/jobs/{job_id}/build_dataset")
-async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
+async def build_dataset(
+    job_id: str,
+    trigger_token: str = "jhwface",
+    subject_desc: str = "korean male",
+):
     job_path = os.path.join("data", "jobs", job_id)
     report_path = os.path.join(job_path, "report.json")
 
@@ -356,6 +360,7 @@ async def build_dataset(job_id: str, trigger_token: str = "jhwface"):
             job_path,
             report,
             trigger_token=trigger_token,
+            subject_desc=subject_desc,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"build_dataset error: {type(e).__name__}: {e}")
