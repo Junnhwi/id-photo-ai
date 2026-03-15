@@ -5,11 +5,9 @@ from typing import Dict, List
 
 
 
-def _make_caption(trigger_token: str) -> str:
-    """
-    V1은 공통 캡션 하나로 단순하게 시작.
-    """
-    return f"{trigger_token}, korean male, portrait, front-facing, white background, ID photo"
+def _make_caption(trigger_token: str, subject_desc: str = "korean male") -> str:
+    """공통 캡션 템플릿 생성"""
+    return f"{trigger_token}, {subject_desc}, portrait, front-facing, white background, ID photo"
 
 
 def build_training_dataset(
@@ -17,6 +15,7 @@ def build_training_dataset(
     report: dict,
     *,
     trigger_token: str = "jhwface",
+    subject_desc: str = "korean male",
 ) -> Dict:
     """
     embedding 단계에서 kept 된 background/white_*.jpg 이미지들을
@@ -32,7 +31,7 @@ def build_training_dataset(
     dataset_dir = os.path.join(job_path, "train_dataset")
     os.makedirs(dataset_dir, exist_ok=True)
 
-    caption_text = _make_caption(trigger_token)
+    caption_text = _make_caption(trigger_token, subject_desc)
 
     selected_files: List[Dict] = []
     missing_files: List[Dict] = []
